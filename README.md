@@ -15,5 +15,5 @@ Démarrer localement:
 # http://localhost:3000/health
 
 Docker:
-- docker build -t axa-lab:local .
-- docker run -p 3000:3000 axa-lab:local
+- docker build -t devsecops-lab:local .
+- docker run -p 3000:3000 devsecops-lab:local

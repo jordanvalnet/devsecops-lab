@@ -1,16 +1,139 @@
-name: ci
+name: CI Security Pipeline
 on:
   push:
   pull_request:
 
+# Permissions minimales pour tous les jobs
+permissions:
+  actions: read
+  contents: read
+  security-events: write
+
+env:
+  NODE_VERSION: '22'
+
 jobs:
-  build-test:
+  build_test:
+    name: Build & Test
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: '18'
+          node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
       - run: npm ci
       - run: npm test
+
+  sast_semgrep:
+    name: SAST (Semgrep) + SARIF upload
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run Semgrep
+        id: semgrep
+        uses: returntocorp/semgrep-action@v1
+        with:
+          config: |
+            p/owasp-top-ten
+            p/javascript
+            p/nodejsscan
+          generateSarif: true
+          output: semgrep.sarif
+          strict: false        # laisse passer le job même s'il y a des findings
+        continue-on-error: true
+
+      - name: Upload Semgrep SARIF to Code Scanning
+        # Skips upload on PRs from forks (token is read-only there)
+        if: always() && hashFiles('semgrep.sarif') != '' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: semgrep.sarif
+
+      - name: Upload SARIF as artifact (debug)
+        if: always() && hashFiles('semgrep.sarif') != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: semgrep-sarif
+          path: semgrep.sarif
+
+
+  sca_npm_audit:
+    name: SCA (npm audit)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+      - run: npm ci
+      - run: npx audit-ci --high --report-type full #|| true
+
+  container_trivy:
+    name: Container scan (Trivy)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build image
+        run: docker build -t app:ci .
+      - name: Trivy image scan
+        uses: aquasecurity/trivy-action@0.29.0
+        with:
+          image-ref: 'app:ci'
+          vuln-type: 'os,library'
+          severity: 'HIGH,CRITICAL'
+          exit-code: '1'
+          format: 'table'
+
+  dast_zap:
+    name: DAST (OWASP ZAP baseline)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build image
+        run: docker build -t app:ci .
+
+      - name: Run container
+        run: docker run -d --name app-ci -p 3000:3000 app:ci
+
+      - name: Wait for app to be ready
+        shell: bash
+        run: |
+          for i in {1..60}; do
+            if curl -fsS http://localhost:3000/health >/dev/null; then
+              echo "App is up"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "App did not start in time"
+          docker logs app-ci || true
+          exit 1
+
+      - name: ZAP Baseline Scan
+        uses: zaproxy/action-baseline@v0.11.0
+        with:
+          target: 'http://127.0.0.1:3000'   # 127.0.0.1 évite d’éventuels soucis IPv6
+          cmd_options: '-m 1'               # durée 1 minute (au lieu de l’invalide "-t 60")
+          allow_issue_writing: false        # pas d’issue créée -> pas besoin de write
+          fail_action: false                # ne bloque pas le job (POC)
+        continue-on-error: true
+
+      - name: Archive ZAP report
+        uses: actions/upload-artifact@v4
+        with:
+          name: zap-report
+          path: report_html.html
+
+      - name: Stop container
+        if: always()
+        run: docker rm -f app-ci || true
+

@@ -1,0 +1,30 @@
+{
+    "name": "devsecops-lab",
+    "version": "0.1.0",
+    "private": true,
+    "description": "Minimal Node/Express service for DevSecOps POC",
+    "main": "src/index.js",
+    "scripts": {
+      "start": "node src/index.js",
+      "dev": "node --watch src/index.js",
+      "test": "jest --coverage --runInBand"
+    },
+    "dependencies": {
+      "express": "^4.19.2",
+      "helmet": "^7.1.0"
+    },
+    "devDependencies": {
+      "jest": "^29.7.0",
+      "supertest": "^7.1.4"
+    },
+    "jest": {
+      "testEnvironment": "node",
+      "collectCoverageFrom": ["src/**/*.js"]
+    },
+    "engines": {
+      "node": ">=18"
+    },
+    "license": "MIT",
+    "author": "Jordan Valnet"
+  }
+  

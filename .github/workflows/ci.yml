@@ -92,44 +92,44 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-        - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-        - name: Build image
+      - name: Build image
         run: docker build -t app:ci .
-        
-        - name: Run container
+
+      - name: Run container
         run: docker run -d --name app-ci -p 3000:3000 app:ci
 
-        - name: Wait for app to be ready
+      - name: Wait for app to be ready
         shell: bash
         run: |
-            for i in {1..60}; do
+          for i in {1..60}; do
             if curl -fsS http://localhost:3000/health >/dev/null; then
-                echo "App is up"
-                exit 0
+              echo "App is up"
+              exit 0
             fi
             sleep 1
-            done
-            echo "App did not start in time"
-            docker logs app-ci || true
-            exit 1
+          done
+          echo "App did not start in time"
+          docker logs app-ci || true
+          exit 1
 
-        - name: ZAP Baseline Scan
+      - name: ZAP Baseline Scan
         uses: zaproxy/action-baseline@v0.11.0
         with:
-            target: 'http://127.0.0.1:3000'   # 127.0.0.1 évite d’éventuels soucis IPv6
-            cmd_options: '-m 1'               # durée 1 minute (au lieu de l’invalide "-t 60")
-            allow_issue_writing: false        # pas d’issue créée -> pas besoin de write
-            fail_action: false                # ne bloque pas le job (POC)
+          target: 'http://127.0.0.1:3000'   # 127.0.0.1 évite d’éventuels soucis IPv6
+          cmd_options: '-m 1'               # durée 1 minute (au lieu de l’invalide "-t 60")
+          allow_issue_writing: false        # pas d’issue créée -> pas besoin de write
+          fail_action: false                # ne bloque pas le job (POC)
         continue-on-error: true
 
-        - name: Archive ZAP report
+      - name: Archive ZAP report
         uses: actions/upload-artifact@v4
         with:
-            name: zap-report
-            path: report_html.html
+          name: zap-report
+          path: report_html.html
 
-        - name: Stop container
+      - name: Stop container
         if: always()
         run: docker rm -f app-ci || true
 
